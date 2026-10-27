@@ -1,0 +1,23 @@
+# Dependencias de Node
+node_modules/
+
+# Archivos de entorno (¡CRÍTICO! Aquí van tus secretos)
+.env
+.env.*
+!.env.example
+
+# Archivos generados por la compilación de TypeScript
+dist/
+build/
+
+# Archivos de registro (logs)
+*.log
+npm-debug.log*
+
+# Archivos temporales de la base de datos de Prisma
+prisma/*.db
+prisma/*.db-journal
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
