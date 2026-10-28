@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma" // Opcional: define una carpeta para el cliente generado
+}
+
+datasource db {
+  provider = "postgresql"
+  // La línea 'url' se elimina de aquí
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  phoneNumber   String?        @unique
+  passwordHash  String
+  role          Role           @default(USER)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  familyId  String    @default(uuid())
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
+enum Role {
+  USER
+  MODERATOR
+  ADMIN
+}
