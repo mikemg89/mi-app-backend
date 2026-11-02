@@ -14,6 +14,9 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && prisma validate",
+    "pretest": "prisma generate",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
@@ -40,8 +43,11 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^22.0.0",
+    "@types/supertest": "^7.2.1",
     "prisma": "^7.10.1",
+    "supertest": "^7.3.1",
     "tsx": "^4.7.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^5.1.0"
   }
 }

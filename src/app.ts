@@ -1,3 +1,4 @@
+import authRoutes from "./routes/authRoutes";
 import express, {
   type NextFunction,
   type Request,
@@ -8,6 +9,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { env } from "./config/env";
 import { prisma } from "./lib/prisma";
+import { isUniqueConstraintError } from "./utils/prismaErrors";
 
 const app = express();
 
@@ -56,7 +58,10 @@ const limiter = rateLimit({
   legacyHeaders: false,
   message: "Demasiadas peticiones desde esta IP, intenta de nuevo más tarde.",
 });
-app.use("/api", limiter);
+// En tests se desactiva para que ejecuciones repetidas no agoten el límite.
+if (env.NODE_ENV !== "test") {
+  app.use("/api", limiter);
+}
 
 // 6. Salud del proceso (liveness)
 app.get("/health", (_req, res) => {
@@ -76,40 +81,43 @@ app.get("/ready", async (_req, res) => {
   }
 });
 
-// Aquí irán nuestras rutas de autenticación y perfiles en el futuro
-// app.use('/api/auth', authRoutes);
+// 8. Rutas de autenticación
+app.use("/api/auth", authRoutes);
 
-// 8. Ruta no encontrada
+// 9. Ruta no encontrada
 app.use((_req, res) => {
   res.status(404).json({ error: "Ruta no encontrada" });
 });
 
-// 9. Manejo centralizado de errores
-app.use(
-  (err: unknown, _req: Request, res: Response, next: NextFunction) => {
-    if (res.headersSent) {
-      next(err);
-      return;
-    }
+// 10. Manejo centralizado de errores
+app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
 
-    if (err instanceof SyntaxError) {
-      res.status(400).json({ error: "JSON inválido" });
-      return;
-    }
+  if (err instanceof SyntaxError) {
+    res.status(400).json({ error: "JSON inválido" });
+    return;
+  }
 
-    const status =
-      typeof err === "object" && err !== null && "status" in err
-        ? Number((err as { status: unknown }).status)
-        : Number.NaN;
+  const status =
+    typeof err === "object" && err !== null && "status" in err
+      ? Number((err as { status: unknown }).status)
+      : Number.NaN;
 
-    if (status === 413) {
-      res.status(413).json({ error: "Payload demasiado grande" });
-      return;
-    }
+  if (status === 413) {
+    res.status(413).json({ error: "Payload demasiado grande" });
+    return;
+  }
 
-    console.error(err);
-    res.status(500).json({ error: "Error interno del servidor" });
-  },
-);
+  if (isUniqueConstraintError(err)) {
+    res.status(409).json({ error: "El recurso ya existe" });
+    return;
+  }
+
+  console.error(err);
+  res.status(500).json({ error: "Error interno del servidor" });
+});
 
 export default app;
