@@ -15,6 +15,15 @@ const envSchema = z.object({
     .min(32, "JWT_REFRESH_SECRET debe tener al menos 32 caracteres"),
   CORS_ORIGINS: z.string().optional(),
   TRUST_PROXY: z.string().optional(),
+
+  // Envío de correo. "console" imprime el mensaje en la terminal (desarrollo);
+  // "memory" guarda los envíos en memoria (tests). El driver SMTP/Resend se
+  // añade cuando haya dominio verificado.
+  MAIL_DRIVER: z.enum(["console", "memory"]).default("console"),
+
+  // Clave para el endpoint de administración (crear invitaciones).
+  // Si no se define, el endpoint queda deshabilitado.
+  ADMIN_API_KEY: z.string().min(32).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

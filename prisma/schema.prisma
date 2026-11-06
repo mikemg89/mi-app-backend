@@ -9,14 +9,20 @@ datasource db {
 }
 
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  phoneNumber   String?        @unique
-  passwordHash  String
-  role          Role           @default(USER)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  refreshTokens RefreshToken[]
+  id              String         @id @default(uuid())
+  email           String         @unique
+  phoneNumber     String?        @unique
+  passwordHash    String
+  role            Role           @default(USER)
+  status          UserStatus     @default(PENDING_VERIFICATION)
+  emailVerifiedAt DateTime?
+  videoStatus     VideoStatus    @default(NONE)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  refreshTokens   RefreshToken[]
+  otps            EmailOtp[]
+
+  @@index([status])
 }
 
 model RefreshToken {
@@ -34,8 +40,49 @@ model RefreshToken {
   @@index([expiresAt])
 }
 
+/// Código de invitación de un solo uso. Sin invitación no hay registro (ADR-009).
+model Invite {
+  id        String    @id @default(uuid())
+  code      String    @unique
+  createdBy String?
+  usedById  String?   @unique
+  usedAt    DateTime?
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+
+  @@index([expiresAt])
+}
+
+/// Código OTP de 6 dígitos para verificar el email. Se guarda hasheado.
+model EmailOtp {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
 enum Role {
   USER
   MODERATOR
   ADMIN
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+}
+
+/// Estado de la verificación por video-selfie (paso 2 del MVP).
+enum VideoStatus {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
 }

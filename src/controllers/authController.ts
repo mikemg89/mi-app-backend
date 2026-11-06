@@ -3,7 +3,12 @@ import type { Request, Response } from "express";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 import { hashPassword, verifyPassword } from "../utils/password";
-import { registerSchema, loginSchema } from "../utils/validators";
+import {
+  registerSchema,
+  loginSchema,
+  verifyEmailSchema,
+  resendOtpSchema,
+} from "../utils/validators";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -13,74 +18,183 @@ import {
   isUniqueConstraintError,
   uniqueConstraintTarget,
 } from "../utils/prismaErrors";
+import { ApiError } from "../utils/apiError";
+import { issueOtp, consumeOtp } from "../services/otp";
+import { normalizeInviteCode } from "../services/invites";
 
 const badRequest = (res: Response, message?: string) => {
-  return res.status(400).json({ error: message ?? "Datos inválidos" });
+  return res
+    .status(400)
+    .json({ error: message ?? "Datos inválidos", code: "VALIDATION" });
 };
 
+/**
+ * Registro cerrado: sin invitación válida no se crea la cuenta (ADR-009).
+ * La cuenta nace en PENDING_VERIFICATION y no puede iniciar sesión hasta
+ * confirmar el OTP del correo.
+ */
 export const register = async (req: Request, res: Response) => {
-  // 1. Validar los datos de entrada (Zod 4 usa `issues`, no `errors`)
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     return badRequest(res, parsed.error.issues[0]?.message);
   }
 
-  const data = parsed.data;
+  const { email, password, phoneNumber } = parsed.data;
+  const inviteCode = normalizeInviteCode(parsed.data.inviteCode);
 
-  // 2. Verificar si el email ya existe (comprobación amigable)
-  const existingUser = await prisma.user.findUnique({
-    where: { email: data.email },
-  });
+  const existingUser = await prisma.user.findUnique({ where: { email } });
   if (existingUser) {
-    return res.status(409).json({ error: "El email ya está registrado" });
+    return res
+      .status(409)
+      .json({ error: "El email ya está registrado", code: "EMAIL_TAKEN" });
   }
 
-  // 3. Verificar si el teléfono ya existe (solo si se envió)
-  if (data.phoneNumber) {
+  if (phoneNumber) {
     const existingPhone = await prisma.user.findUnique({
-      where: { phoneNumber: data.phoneNumber },
+      where: { phoneNumber },
     });
     if (existingPhone) {
-      return res.status(409).json({ error: "El teléfono ya está registrado" });
+      return res
+        .status(409)
+        .json({ error: "El teléfono ya está registrado", code: "PHONE_TAKEN" });
     }
   }
 
-  // 4. Hashear la contraseña
-  const passwordHash = await hashPassword(data.password);
+  const passwordHash = await hashPassword(password);
 
-  // 5. Crear el usuario. Si dos peticiones compiten, Prisma devuelve P2002
-  //    y lo traducimos a 409 en lugar de 500.
+  let user;
   try {
-    const user = await prisma.user.create({
-      data: {
-        email: data.email,
-        passwordHash,
-        phoneNumber: data.phoneNumber,
-      },
-    });
+    // Crear la cuenta y consumir la invitación son una sola operación:
+    // si la invitación ya no está disponible, no queda un usuario huérfano.
+    user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: { email, passwordHash, phoneNumber },
+      });
 
-    return res.status(201).json({
-      message: "Usuario registrado exitosamente",
-      userId: user.id,
+      const claimed = await tx.invite.updateMany({
+        where: {
+          code: inviteCode,
+          usedById: null,
+          expiresAt: { gt: new Date() },
+        },
+        data: { usedById: created.id, usedAt: new Date() },
+      });
+
+      if (claimed.count === 0) {
+        throw new ApiError(
+          400,
+          "INVALID_INVITE",
+          "Código de invitación inválido, usado o vencido",
+        );
+      }
+
+      return created;
     });
   } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      const target = uniqueConstraintTarget(error);
-      const message =
-        target && target.toLowerCase().includes("phone")
-          ? "El teléfono ya está registrado"
-          : "El email ya está registrado";
-
-      return res.status(409).json({ error: message });
+    if (error instanceof ApiError) {
+      return res
+        .status(error.status)
+        .json({ error: error.message, code: error.code });
     }
 
-    // Los errores desconocidos los maneja el middleware central.
+    if (isUniqueConstraintError(error)) {
+      const target = uniqueConstraintTarget(error);
+      const isPhone = target?.toLowerCase().includes("phone");
+      return res.status(409).json({
+        error: isPhone
+          ? "El teléfono ya está registrado"
+          : "El email ya está registrado",
+        code: isPhone ? "PHONE_TAKEN" : "EMAIL_TAKEN",
+      });
+    }
+
     throw error;
   }
+
+  await issueOtp(user);
+
+  return res.status(201).json({
+    message: "Cuenta creada. Revisa tu correo para verificarla.",
+    userId: user.id,
+    status: user.status,
+  });
+};
+
+/** Confirma el OTP y activa la cuenta. */
+export const verifyEmail = async (req: Request, res: Response) => {
+  const parsed = verifyEmailSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return badRequest(res, parsed.error.issues[0]?.message);
+  }
+
+  const { email, code } = parsed.data;
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user) {
+    return res
+      .status(400)
+      .json({ error: "Código inválido o vencido", code: "INVALID_OTP" });
+  }
+
+  if (user.status === "ACTIVE") {
+    return res
+      .status(409)
+      .json({ error: "La cuenta ya está verificada", code: "ALREADY_VERIFIED" });
+  }
+
+  const result = await consumeOtp(user.id, code);
+
+  if (result === "expired") {
+    return res.status(400).json({
+      error: "El código venció. Pide uno nuevo.",
+      code: "OTP_EXPIRED",
+    });
+  }
+
+  if (result === "locked") {
+    return res.status(429).json({
+      error: "Demasiados intentos. Pide un código nuevo.",
+      code: "OTP_LOCKED",
+    });
+  }
+
+  if (result !== "ok") {
+    return res
+      .status(400)
+      .json({ error: "Código inválido", code: "INVALID_OTP" });
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { status: "ACTIVE", emailVerifiedAt: new Date() },
+  });
+
+  return res
+    .status(200)
+    .json({ message: "Cuenta verificada", status: "ACTIVE" });
+};
+
+/** Reenvía el OTP. La respuesta es siempre la misma para no filtrar cuentas. */
+export const resendOtp = async (req: Request, res: Response) => {
+  const parsed = resendOtpSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return badRequest(res, parsed.error.issues[0]?.message);
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { email: parsed.data.email },
+  });
+
+  if (user && user.status === "PENDING_VERIFICATION") {
+    await issueOtp(user);
+  }
+
+  return res.status(200).json({
+    message: "Si el correo está registrado, enviamos un nuevo código",
+  });
 };
 
 export const login = async (req: Request, res: Response) => {
-  // 1. Validar datos
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return badRequest(res, parsed.error.issues[0]?.message);
@@ -88,28 +202,37 @@ export const login = async (req: Request, res: Response) => {
 
   const data = parsed.data;
 
-  // 2. Buscar usuario (el email ya viene normalizado)
   const user = await prisma.user.findUnique({ where: { email: data.email } });
   if (!user) {
     // Mensaje genérico para no revelar si el email existe (seguridad)
-    return res.status(401).json({ error: "Credenciales inválidas" });
+    return res
+      .status(401)
+      .json({ error: "Credenciales inválidas", code: "INVALID_CREDENTIALS" });
   }
 
-  // 3. Verificar contraseña
   const isValidPassword = await verifyPassword(
     user.passwordHash,
     data.password,
   );
   if (!isValidPassword) {
-    return res.status(401).json({ error: "Credenciales inválidas" });
+    return res
+      .status(401)
+      .json({ error: "Credenciales inválidas", code: "INVALID_CREDENTIALS" });
   }
 
-  // 4. Generar tokens
+  // Solo las cuentas con el correo confirmado pueden iniciar sesión.
+  if (user.status !== "ACTIVE") {
+    return res.status(403).json({
+      error:
+        "Debes verificar tu correo antes de iniciar sesión. Revisa tu bandeja de entrada.",
+      code: "NOT_VERIFIED",
+    });
+  }
+
   const familyId = crypto.randomUUID(); // ID de familia para esta sesión
   const accessToken = generateAccessToken(user.id, user.role);
   const refreshToken = generateRefreshToken(user.id, familyId);
 
-  // 5. Guardar el HASH del refresh token en la base de datos
   const tokenHash = hashToken(refreshToken);
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7); // 7 días
@@ -123,7 +246,6 @@ export const login = async (req: Request, res: Response) => {
     },
   });
 
-  // 6. Devolver los tokens al cliente
   return res.status(200).json({
     accessToken,
     refreshToken,

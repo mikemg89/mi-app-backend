@@ -1,4 +1,5 @@
 import authRoutes from "./routes/authRoutes";
+import adminRoutes from "./routes/adminRoutes";
 import express, {
   type NextFunction,
   type Request,
@@ -10,6 +11,7 @@ import rateLimit from "express-rate-limit";
 import { env } from "./config/env";
 import { prisma } from "./lib/prisma";
 import { isUniqueConstraintError } from "./utils/prismaErrors";
+import { ApiError } from "./utils/apiError";
 
 const app = express();
 
@@ -58,9 +60,20 @@ const limiter = rateLimit({
   legacyHeaders: false,
   message: "Demasiadas peticiones desde esta IP, intenta de nuevo más tarde.",
 });
-// En tests se desactiva para que ejecuciones repetidas no agoten el límite.
+
+// Límite más estricto para las rutas de autenticación (registro, OTP, login).
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: "Demasiados intentos de autenticación, espera unos minutos.",
+});
+
+// En tests se desactivan para que ejecuciones repetidas no agoten el límite.
 if (env.NODE_ENV !== "test") {
   app.use("/api", limiter);
+  app.use("/api/auth", authLimiter);
 }
 
 // 6. Salud del proceso (liveness)
@@ -81,12 +94,13 @@ app.get("/ready", async (_req, res) => {
   }
 });
 
-// 8. Rutas de autenticación
+// 8. Rutas
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 
 // 9. Ruta no encontrada
 app.use((_req, res) => {
-  res.status(404).json({ error: "Ruta no encontrada" });
+  res.status(404).json({ error: "Ruta no encontrada", code: "NOT_FOUND" });
 });
 
 // 10. Manejo centralizado de errores
@@ -96,8 +110,13 @@ app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
     return;
   }
 
+  if (err instanceof ApiError) {
+    res.status(err.status).json({ error: err.message, code: err.code });
+    return;
+  }
+
   if (err instanceof SyntaxError) {
-    res.status(400).json({ error: "JSON inválido" });
+    res.status(400).json({ error: "JSON inválido", code: "INVALID_JSON" });
     return;
   }
 
@@ -107,17 +126,21 @@ app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
       : Number.NaN;
 
   if (status === 413) {
-    res.status(413).json({ error: "Payload demasiado grande" });
+    res
+      .status(413)
+      .json({ error: "Payload demasiado grande", code: "PAYLOAD_TOO_LARGE" });
     return;
   }
 
   if (isUniqueConstraintError(err)) {
-    res.status(409).json({ error: "El recurso ya existe" });
+    res
+      .status(409)
+      .json({ error: "El recurso ya existe", code: "CONFLICT" });
     return;
   }
 
   console.error(err);
-  res.status(500).json({ error: "Error interno del servidor" });
+  res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL" });
 });
 
 export default app;

@@ -22,10 +22,7 @@ const phoneNumberSchema = z
   .pipe(
     z
       .string()
-      .regex(
-        /^\+?[0-9]{7,15}$/,
-        "El teléfono debe tener entre 7 y 15 dígitos",
-      )
+      .regex(/^\+?[0-9]{7,15}$/, "El teléfono debe tener entre 7 y 15 dígitos")
       .optional(),
   )
   .optional();
@@ -34,6 +31,23 @@ export const registerSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
   phoneNumber: phoneNumberSchema,
+  inviteCode: z
+    .string()
+    .trim()
+    .min(4, "El código de invitación es obligatorio")
+    .max(40, "Código de invitación inválido"),
+});
+
+export const verifyEmailSchema = z.object({
+  email: emailSchema,
+  code: z
+    .string()
+    .trim()
+    .regex(/^[0-9]{6}$/, "El código debe tener 6 dígitos"),
+});
+
+export const resendOtpSchema = z.object({
+  email: emailSchema,
 });
 
 export const loginSchema = z.object({

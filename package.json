@@ -17,6 +17,8 @@
     "pretest": "prisma generate",
     "test": "vitest run",
     "test:watch": "vitest",
+    "smoke": "npm run build && node scripts/smoke.cjs",
+    "invite": "node scripts/new-invite.cjs",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
