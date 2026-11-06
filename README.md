@@ -2,8 +2,8 @@
 
 API de DateApp — registro cerrado por invitación + verificación de email.
 
-> **Documentación del proyecto:** [`../docs/`](../docs/README.md)
-> La guía de trabajo actual es [`../docs/00-mvp-sin-presupuesto.md`](../docs/00-mvp-sin-presupuesto.md).
+> **Documentación del proyecto:** [`docs/`](docs/README.md)
+> La guía de trabajo actual es [`docs/00-mvp-sin-presupuesto.md`](docs/00-mvp-sin-presupuesto.md).
 > Este README solo cubre cómo correr el backend.
 
 ---
