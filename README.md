@@ -62,8 +62,26 @@ POST /api/admin/invites      header: x-admin-key    → 201 { invites: [{ code, 
 GET  /api/admin/invites/stats header: x-admin-key   → { available, used }
 ```
 
+### Verificación por video-selfie (paso 2)
+
+```
+POST /api/verification/challenge   auth    → 201 { verificationId, code, expiresAt }
+POST /api/verification/video       auth    → 202 PENDING_REVIEW
+     header: x-verification-id, Content-Type: video/mp4
+     body: el archivo binario (máx. 15 MB)
+GET  /api/verification/status      auth    → { videoStatus, verification }
+POST /api/verification/review      x-admin-key
+     { verificationId, decision: "APPROVED" | "REJECTED" }
+```
+
+El código de 6 dígitos lo emite el servidor y el usuario debe decirlo en el video: así una
+grabación pregrabada no sirve. Con `TELEGRAM_BOT_TOKEN` y `TELEGRAM_ADMIN_CHAT_ID` configurados,
+el video llega al bot con botones **Aprobar / Rechazar**; sin ellos queda `PENDING_REVIEW` y se
+resuelve con `/api/verification/review`. El archivo se borra en cuanto se revisa.
+
 Errores con `code` estable: `VALIDATION`, `INVALID_INVITE`, `EMAIL_TAKEN`, `PHONE_TAKEN`,
-`INVALID_OTP`, `OTP_EXPIRED`, `OTP_LOCKED`, `ALREADY_VERIFIED`, `NOT_VERIFIED`.
+`INVALID_OTP`, `OTP_EXPIRED`, `OTP_LOCKED`, `ALREADY_VERIFIED`, `NOT_VERIFIED`,
+`CHALLENGE_EXPIRED`, `VERIFICATION_STATE`, `UNSUPPORTED_MEDIA`.
 
 ---
 
@@ -75,7 +93,9 @@ Errores con `code` estable: `VALIDATION`, `INVALID_INVITE`, `EMAIL_TAKEN`, `PHON
 | `npm run build` | Compila a `dist/` |
 | `npm start` | Ejecuta `dist/server.js` (requiere build) |
 | `npm test` | Vitest (necesita PostgreSQL real) |
-| `npm run smoke` | Compila y corre 14 comprobaciones del flujo de registro con `node` puro |
+| `npm run smoke` | Compila y corre 23 comprobaciones (registro + video) con `node` puro |
+| `npm run invite` | Crea un código de invitación en la base de datos |
+| `npm run telegram:setup -- <token>` | Valida el bot, descubre tu chat id y escribe el `.env` |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check` | typecheck + `prisma validate` |
 | `npm run db:migrate` / `db:deploy` | Migraciones en dev / producción |

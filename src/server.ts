@@ -1,10 +1,28 @@
 import { env } from "./config/env";
 import app from "./app";
 import { prisma } from "./lib/prisma";
+import { purgeOldVideos } from "./services/videoStorage";
+import { startTelegramPolling, telegramEnabled } from "./services/telegram";
 
 const server = app.listen(env.PORT, () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${env.PORT}`);
   console.log(`🛡️  Entorno: ${env.NODE_ENV}`);
+
+  void purgeOldVideos()
+    .then((removed) => {
+      if (removed > 0) {
+        console.log(`🧹 ${removed} video(s) vencidos eliminados`);
+      }
+    })
+    .catch((error) => console.error("Error limpiando videos:", error));
+
+  if (telegramEnabled()) {
+    void startTelegramPolling();
+  } else {
+    console.log(
+      "📭 Telegram deshabilitado (faltan TELEGRAM_BOT_TOKEN / TELEGRAM_ADMIN_CHAT_ID)",
+    );
+  }
 });
 
 server.on("error", (error) => {

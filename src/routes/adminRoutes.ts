@@ -5,10 +5,13 @@ import {
   getInviteStats,
 } from "../controllers/adminController";
 import { asyncHandler } from "../utils/asyncHandler";
+import { requireAdmin } from "../middleware/requireAdmin";
 
 const router = Router();
 
-// Protegido con la cabecera x-admin-key (ADMIN_API_KEY)
+// Todo lo administrativo exige la cabecera x-admin-key (ADMIN_API_KEY)
+router.use(requireAdmin);
+
 router.post("/invites", asyncHandler(createInviteBatch));
 router.get("/invites/stats", asyncHandler(getInviteStats));
 

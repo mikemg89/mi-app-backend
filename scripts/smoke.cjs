@@ -137,6 +137,94 @@ function check(name, condition, detail = "") {
   );
   for (const i of withKey.body.invites || []) invites.push(i.code);
 
+  // ── Paso 2: verificación por video-selfie ──────────────────────────────
+  const loginForVideo = await request(app)
+    .post("/api/auth/login")
+    .send({ email: address, password: PASSWORD });
+  const token = loginForVideo.body.accessToken;
+
+  const noAuth = await request(app)
+    .post("/api/verification/challenge")
+    .send({});
+  check("challenge sin token → 401", noAuth.status === 401, `status=${noAuth.status}`);
+
+  const challenge = await request(app)
+    .post("/api/verification/challenge")
+    .set("Authorization", `Bearer ${token}`)
+    .send({});
+  check(
+    "challenge con token → 201 y código de 6 dígitos",
+    challenge.status === 201 && /^\d{6}$/.test(String(challenge.body.code ?? "")),
+    JSON.stringify(challenge.body).slice(0, 160),
+  );
+
+  const fakeMp4 = Buffer.concat([
+    Buffer.from([0x00, 0x00, 0x00, 0x18]),
+    Buffer.from("ftypisom", "ascii"),
+    Buffer.alloc(2048, 0),
+  ]);
+
+  const notVideo = await request(app)
+    .post("/api/verification/video")
+    .set("Authorization", `Bearer ${token}`)
+    .set("x-verification-id", challenge.body.verificationId)
+    .set("Content-Type", "video/mp4")
+    .send(Buffer.from("esto no es un video"));
+
+  check("archivo que no es video → 415", notVideo.status === 415, `status=${notVideo.status}`);
+
+  const upload = await request(app)
+    .post("/api/verification/video")
+    .set("Authorization", `Bearer ${token}`)
+    .set("x-verification-id", challenge.body.verificationId)
+    .set("Content-Type", "video/mp4")
+    .send(fakeMp4);
+
+  check(
+    "video válido → 202 PENDING_REVIEW",
+    upload.status === 202 && upload.body.status === "PENDING_REVIEW",
+    JSON.stringify(upload.body).slice(0, 160),
+  );
+
+  const pending = await request(app)
+    .get("/api/verification/status")
+    .set("Authorization", `Bearer ${token}`);
+  check(
+    "estado tras subir → PENDING",
+    pending.status === 200 && pending.body.videoStatus === "PENDING",
+    JSON.stringify(pending.body).slice(0, 160),
+  );
+
+  const reviewNoKey = await request(app)
+    .post("/api/verification/review")
+    .send({ verificationId: challenge.body.verificationId, decision: "APPROVED" });
+  check("review sin clave → 401", reviewNoKey.status === 401, `status=${reviewNoKey.status}`);
+
+  const review = await request(app)
+    .post("/api/verification/review")
+    .set("x-admin-key", process.env.ADMIN_API_KEY)
+    .send({ verificationId: challenge.body.verificationId, decision: "APPROVED" });
+  check(
+    "review con clave → 200 APPROVED",
+    review.status === 200 && review.body.status === "APPROVED",
+    JSON.stringify(review.body).slice(0, 160),
+  );
+
+  const after = await request(app)
+    .get("/api/verification/status")
+    .set("Authorization", `Bearer ${token}`);
+  check(
+    "estado tras aprobar → APPROVED",
+    after.status === 200 && after.body.videoStatus === "APPROVED",
+    JSON.stringify(after.body).slice(0, 160),
+  );
+
+  const reviewedTwice = await request(app)
+    .post("/api/verification/review")
+    .set("x-admin-key", process.env.ADMIN_API_KEY)
+    .send({ verificationId: challenge.body.verificationId, decision: "REJECTED" });
+  check("revisar dos veces → 409", reviewedTwice.status === 409, `status=${reviewedTwice.status}`);
+
   await prisma.user.deleteMany({ where: { email: { startsWith: `smoke-${tag}.` } } });
   await prisma.invite.deleteMany({ where: { code: { in: invites } } });
   await prisma.$disconnect();

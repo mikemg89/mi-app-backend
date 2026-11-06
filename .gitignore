@@ -22,3 +22,6 @@ prisma/*.db-journal
 .DS_Store
 Thumbs.db
 /src/generated/prisma
+
+# Videos de verificación (datos personales: nunca al repositorio)
+/uploads/

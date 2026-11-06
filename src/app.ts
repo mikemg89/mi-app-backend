@@ -1,5 +1,6 @@
 import authRoutes from "./routes/authRoutes";
 import adminRoutes from "./routes/adminRoutes";
+import verificationRoutes from "./routes/verificationRoutes";
 import express, {
   type NextFunction,
   type Request,
@@ -97,6 +98,7 @@ app.get("/ready", async (_req, res) => {
 // 8. Rutas
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/verification", verificationRoutes);
 
 // 9. Ruta no encontrada
 app.use((_req, res) => {

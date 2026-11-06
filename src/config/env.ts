@@ -24,6 +24,15 @@ const envSchema = z.object({
   // Clave para el endpoint de administración (crear invitaciones).
   // Si no se define, el endpoint queda deshabilitado.
   ADMIN_API_KEY: z.string().min(32).optional(),
+
+  // Bot de Telegram para revisar los videos de verificación.
+  // Si falta cualquiera de las dos, el envío se omite y el video queda
+  // PENDING_REVIEW para revisarlo con la clave de administración.
+  TELEGRAM_BOT_TOKEN: z.string().min(20).optional(),
+  TELEGRAM_ADMIN_CHAT_ID: z.string().min(1).optional(),
+
+  // Directorio donde se guardan los videos temporales (se borran al revisar).
+  UPLOAD_DIR: z.string().default("uploads"),
 });
 
 const parsed = envSchema.safeParse(process.env);

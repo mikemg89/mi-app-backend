@@ -21,6 +21,7 @@ model User {
   updatedAt       DateTime       @updatedAt
   refreshTokens   RefreshToken[]
   otps            EmailOtp[]
+  videos          VideoVerification[]
 
   @@index([status])
 }
@@ -85,4 +86,37 @@ enum VideoStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+/// Estado de un intento concreto de verificación por video.
+enum VerificationStatus {
+  AWAITING_UPLOAD
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+/// Un intento de verificación por video-selfie.
+/// El código de desafío lo genera el servidor y aparece en pantalla mientras se graba:
+/// así el video no se puede pregrabar.
+model VideoVerification {
+  id          String             @id @default(uuid())
+  userId      String
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challenge   String
+  status      VerificationStatus @default(AWAITING_UPLOAD)
+  storagePath String?
+  mimeType    String?
+  sizeBytes   Int?
+  uploadedAt  DateTime?
+  reviewedAt  DateTime?
+  reviewedBy  String?
+  reason      String?
+  expiresAt   DateTime
+  purgeAt     DateTime?
+  createdAt   DateTime           @default(now())
+
+  @@index([userId, createdAt])
+  @@index([status])
 }

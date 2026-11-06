@@ -82,8 +82,10 @@ model EmailOtp {
 | POST | `/auth/verify-email` | Consume el OTP → `ACTIVE` |
 | POST | `/auth/resend-otp` | Reenvía el código (invalida el anterior) |
 | POST | `/auth/login` | Solo si `status = ACTIVE` |
-| POST | `/verification/video` | Recibe el video, lo deja `PENDING` *(paso 2)* |
-| POST | `/verification/review` | Aprueba/rechaza *(paso 2)* |
+| POST | `/verification/challenge` | Emite el código de 6 dígitos que se dice en el video |
+| POST | `/verification/video` | Recibe el video binario → `PENDING_REVIEW` |
+| GET | `/verification/status` | Estado del video del usuario |
+| POST | `/verification/review` | Aprueba/rechaza (cabecera `x-admin-key` o bot de Telegram) |
 
 ---
 
