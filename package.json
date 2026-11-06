@@ -19,6 +19,7 @@
     "test:watch": "vitest",
     "smoke": "npm run build && node scripts/smoke.cjs",
     "invite": "node scripts/new-invite.cjs",
+    "telegram:setup": "node scripts/telegram-setup.cjs",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
